@@ -1,0 +1,93 @@
+---
+title: "Sam-script"
+output: html_document
+---
+
+```{r}
+# scripts/drafts/log_exploration_yourname.R
+# Purpose: Compare raw vs log-transformed distributions for a handful of proteins
+
+# Packages
+required <- c("tidyverse")
+new <- setdiff(required, rownames(installed.packages()))
+if (length(new)) install.packages(new)
+library(tidyverse)
+```
+
+```{r}
+# ---- Paths
+
+
+# ---- Load raw data
+  # move up one folder, from scripts/ to the project root
+raw <- read.csv("data/biomarker-raw.csv", check.names = FALSE)
+
+
+
+
+```
+
+```{r}
+# Peek at the columns
+str(raw, max.level = 1)
+
+# ---- Choose a few protein columns
+# Heuristic: take numeric columns that look like protein intensities.
+num_cols <- names(raw)[sapply(raw, is.numeric)]
+
+# If you know specific protein names, replace sample_proteins with those names.
+set.seed(1)
+sample_proteins <- head(num_cols, 6)  # or sample(num_cols, 6)
+
+# Keep ID/group columns if you have them (optional)
+df <- raw[, sample_proteins, drop = FALSE] %>%
+  mutate(row_id = row_number())
+
+# ---- Long format for plotting
+long_raw <- df %>%
+  pivot_longer(-row_id, names_to = "protein", values_to = "value_raw")
+
+# ---- Make a safe log-transform
+# Use log1p (log(1+x)) to handle zeros; if negatives exist, shift by a small constant.
+min_val <- min(long_raw$value_raw, na.rm = TRUE)
+offset  <- ifelse(min_val <= 0, abs(min_val) + 1e-6, 0)
+
+long <- long_raw %>%
+  mutate(
+    value_shifted = value_raw + offset,
+    value_log = log1p(value_shifted)  # log(1 + shifted)
+  )
+```
+
+```{r}
+
+# ---- Plot: RAW
+p_raw <- ggplot(long, aes(x = value_raw)) +
+  geom_histogram(bins = 30) +
+  facet_wrap(~ protein, scales = "free") +
+  labs(
+    title = "Raw protein distributions",
+    x = "Raw intensity", y = "Count",
+    caption = if (offset > 0) paste("Shifted by", signif(offset, 3), "for log check") else NULL
+  ) +
+  theme_minimal()
+
+# ---- Plot: LOG
+p_log <- ggplot(long, aes(x = value_log)) +
+  geom_histogram(bins = 30) +
+  facet_wrap(~ protein, scales = "free") +
+  labs(
+    title = "Log-transformed protein distributions (log1p)",
+    x = "log1p(intensity)", y = "Count"
+  ) +
+  theme_minimal()
+
+# ---- Save figures
+
+p_raw 
+p_log
+
+```
+# Explanation
+
+We clearly see a lot of right skewness in the first graph of the raw protein distribution. When right skewness is present it makes sense to log-transform the data because it compresses the long right tail and makes the distribution more symmetric
