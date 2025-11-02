@@ -9,5 +9,7 @@ To generate a simpler panel, we will use LASSO in order to zero out unimportant 
 
 
 ``` {r}
+set.seed(133233)
+
 #code
 ```
