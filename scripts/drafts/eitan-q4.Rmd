@@ -3,3 +3,7 @@ title: "eitan-q4"
 output: html_document
 ---
 
+## Part 4 — Simpler Panel (will use LASSO)
+
+To generate a simpler panel, we will use LASSO in order to zero out unimportant coefficients, which hopefully will result in a smaller set of proteins while retaining accuracy. We first will tune it on the training set only, then evaluate once on the test set.
+
