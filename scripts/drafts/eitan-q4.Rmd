@@ -24,4 +24,44 @@ set.seed(133233)
 
 
 Now, we split the data, so we do not end up with training on all the data and overfitting on that data.
+```{r}
+idx  <- caret::createDataPartition(biomarker_clean$group, p = 0.8, list = FALSE)
+train <- biomarker_clean[idx, ]
+test  <- biomarker_clean[-idx, ]
 
+train$group <- factor(train$group, levels = c("TD","ASD"))
+test$group  <- factor(test$group,  levels = c("TD","ASD"))
+
+x_train <- model.matrix(group ~ . - 1, data = subset(train, select = -ados))
+y_train <- train$group
+x_test  <- model.matrix(group ~ . - 1, data = subset(test,  select = -ados))
+y_test  <- test$group
+```
+
+Now, we fit a LASSO logistic regression and extract the panel by looking at the coefficients generated. 
+
+```{r}
+set.seed(133233)
+
+cvfit <- cv.glmnet(
+  x = x_train, y = y_train,
+  family = "binomial",
+  type.measure = "auc",
+  nfolds = 8
+)
+
+coef_1se <- coef(cvfit, s = cvfit$lambda.1se)
+selected <- rownames(coef_1se)[as.numeric(coef_1se) != 0]
+selected <- setdiff(selected, "(Intercept)")
+
+cat("Simpler panel size:", length(selected), "\n")
+print(selected)
+```
+
+Now, we use the test data determined earlier we can test our selected panel to see how it compares. 
+``` {r}
+pred <- as.numeric(predict(cvfit, newx = x_test, s = cvfit$lambda.1se, type = "response"))
+roc_obj <- roc(response = y_test, predictor = pred, levels = c("TD","ASD"), quiet = TRUE)
+auc_val <- as.numeric(auc(roc_obj))
+cat(sprintf("Test AUROC (simpler λ_1SE model): %.3f\n", auc_val))
+```
