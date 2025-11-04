@@ -7,9 +7,21 @@ output: html_document
 
 To generate a simpler panel, we will use LASSO in order to zero out unimportant coefficients, which hopefully will result in a smaller set of proteins while retaining accuracy. We first will tune it on the training set only, then evaluate once on the test set.
 
+First, we run setup the libraries, load the data, and set a seed for reproducability. 
 
 ``` {r}
-set.seed(133233)
 
-#code
+## ---- part4-lasso-simple, message=FALSE, warning=FALSE ------------------
+library(glmnet)
+library(pROC)
+library(caret)
+
+# Load data (this file is one folder up, inside 'data/')
+load("../../data/biomarker-clean.RData")
+
+set.seed(133233)
 ```
+
+
+Now, we split the data, so we do not end up with training on all the data and overfitting on that data.
+
