@@ -65,3 +65,5 @@ roc_obj <- roc(response = y_test, predictor = pred, levels = c("TD","ASD"), quie
 auc_val <- as.numeric(auc(roc_obj))
 cat(sprintf("Test AUROC (simpler λ_1SE model): %.3f\n", auc_val))
 ```
+
+Analysis why 0.636 is lower and explain todo
