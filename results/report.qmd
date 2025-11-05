@@ -35,24 +35,43 @@ Summarize the methodology of the paper in 1-3 paragraphs. You need not explain t
 
 ```{mermaid}
 flowchart LR
-  A[Hard edge] --> B(Round edge)
-  B --> C{Decision}
-  C --> D[Result one]
-  C --> E[Result two]
+  A[Raw Data Collection] --> B[Data Preprocessing]
+  B[Data Preprocessing] --> C[Outlier Removal]
+  C --> D1[Random forest]
+  C --> D2[T-testing]
+  C --> D3[Correlation selection]
+  D1 --> E[5 Shared proteins]
+  D2 --> E
+  D3 --> E
+  E --> F[Additional proteins added using logistic regression]
 ```
 
-##  Findings
-
-Summarize your findings here. I've included some subheaders in a way that seems natural to me; you can structure this section however you like.
+## Findings
 
 ### Impact of preprocessing and outliers
 
-Tasks 1-2
+The reason for log-transforming the protein levels in `biomarker-raw.csv` is due to a lot of right skewness in the first graph of the raw protein distribution. When right skewness is present it makes sense to log-transform the data because it compresses the long right tail and makes the distribution more symmetric.
+
+We temporarily removed the outlier trimming, and did some exploratory analysis of the outlying values. We found some subjects themselves that were outliers. Subject 154, subject 108, and subject 9 who were in groups TD, TD, and ASD respectively all had high (\> 120) levels of outlying values. The TD group had slightly more outliers than the ASD group, with the mean outlier count for the TD group being 17.5 while the mean count for the ASD group was 13.25.
+
+Overall, the preprocessing and removal of outliers is an important step for normalizing the data, and cleaning it for analysis.
 
 ### Methodological variations
 
-Task 3
+We experimented with the following methodological variations:
+
+First, we repeated the analysis but carried out the entire selection procedure on a training partition. It allowed us to get the intersection of proteins out of the top 10. The seven intersecting proteins were DERM, IgD, CK-MB, MAPK2, aldolase A, MAPK14, and M2-PK. The test metrics from the partitioned procedure had an accuracy, sensitivity, and specificity of 0.625, and a roc_auc of 0.602. The test performance is a bit lower (the original test accuracy was 0.7). This reflects the lowered bias (and thus, lowered test accuracy) of the partitioned procedure. The lower panel size of only 7 selected proteins is likely a result of a smaller sample size, and this reflects the reduced stability of feature selection.
+
+Second, we chose a larger number (n = 15) of top predictive proteins using each selection method. Selecting the top 15 predictive proteins using each selection method has a moderate effect on the final selection results. The original process selected 4 proteins, while the larger (n=15) process yielded 7. The additional proteins that were included are Calcineurin, MAPK2, and TGF-b R III.
+
+Lastly, we used a fuzzy selection to include proteins that show up in at least two of the selection methods. Interestingly enough, our results are the same as with the hard selection. This is because our proteins_s3 variable is independent of the two pre-processing steps, so it selected 10 proteins that weren't present in the other two steps, thus making no difference, and leaving only the proteins that were common between proteins_s1 and proteins_s2.
 
 ### Improved classifier
 
-Task 4
+To generate a simpler panel, we used LASSO in order to zero out unimportant coefficients. The idea is that this would result in a smaller set of proteins while retaining accuracy. The model will first be tuned on the training set only, then evaluated on the test set.
+
+Our LASSO (λ₁SE) model selected 4 proteins and reached a test AUROC of 0.636, which falls below the in-class benchmark ( $\approx 0.8$) from the hard-intersection logistic model. The shortfall likely reflects a mix of (i) random train/test partition effects on a small sample (ii) the stronger shrinkage of λ₁SE, which is great for lowering predictors but prone to pruning helpful signals
+
+For future implementations, to tighten results while staying simple, I would maybe (1) re-split with a new seed (2) compare λ or nudge λ slightly upward to find the smallest panel whose CV AUC is near λ₁SE (3) optionally pre-filter to the top 20–30 proteins by a quick t-test on the training set before refitting (a combination of something that was seen earlier in lectures).
+
+These tweaks would theoretically lift AUROC toward the \~0.8 range while keeping the panel compact.
