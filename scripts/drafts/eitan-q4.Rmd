@@ -66,4 +66,13 @@ auc_val <- as.numeric(auc(roc_obj))
 cat(sprintf("Test AUROC (simpler λ_1SE model): %.3f\n", auc_val))
 ```
 
-Analysis why 0.636 is lower and explain todo
+Our LASSO (λ₁SE) model selected `r length(selected)` proteins and reached a test AUROC of `r round(auc_val,3)`, which falls below the in-class benchmark ( $\approx 0.8$) from the hard-intersection logistic model. The shortfall likely reflects a mix of 
+(i) random train/test partition effects on a small sample
+(ii) the stronger shrinkage of λ₁SE, which is great for lowering predictors but prone to pruning helpful signals 
+
+For future implementations, to tighten results while staying simple, I would maybe 
+(1) re-split with a new seed
+(2) compare λ or nudge λ slightly upward to find the smallest panel whose CV AUC is near λ₁SE
+(3) optionally pre-filter to the top 20–30 proteins by a quick t-test on the training set before refitting (a combination of something that was seen earlier in lectures). 
+
+These tweaks would theoretically lift AUROC toward the ~0.8 range while keeping the panel compact. 
