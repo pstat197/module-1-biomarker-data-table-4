@@ -23,7 +23,7 @@ library(tidyverse)
 
 ## Abstract
 
-In this report, we use a public dataset to analyse early detection biomarkers for autism spectrum disorder.
+In this report, we use a public dataset to analyse early detection biomarkers for autism spectrum disorder. Continue
 
 ## Dataset
 
@@ -31,7 +31,15 @@ Write a brief data description, including: how data were obtained; sample charac
 
 ## Summary of published analysis
 
-Summarize the methodology of the paper in 1-3 paragraphs. You need not explain the methods in depth as we did in class; just indicate what methods were used and how they were combined. If possible, include a diagram that depicts the methodological design. (Quarto has support for [GraphViz and Mermaid flowcharts](https://quarto.org/docs/authoring/diagrams.html).) Provide key results: the proteins selected for the classifier and the estimated accuracy.
+In the study conducted by Hewitson et. al, the serum protenomics of 154 boys were measured. 76 boys had autism spectrum disorder (ASD), and 78 didn't. Quality control removed 192 proteins and analyzed 1,125 proteins. The data then underwent multiple pre-processing steps to normalize and remove outliers from the data.
+
+To select the proteins, a random forest, a two-sample t-test, and a correlation with ADOS total scores are independently ran in parallel. The top 10 most predictive proteins from each method were collected, and 5 proteins that were common to all 3 methods were taken as the 'core' proteins. The core panel was made up of MAPK14, IgD, DERM, EPHB2, and suPAR. This left 13 additional proteins.
+
+Using a logistic regression model, the each of the 13 remaining candidates were added one at a time to see if they boosted the performance of the model. In the end, 4 proteins improved the AUC, these were ROR1, GI24, eIF-4H, ARSB.
+
+The final selection of the 5 core proteins and the additional 4 proteins had an AUC of 0.86, a sensitivity of 0.83, and a specificity of 0.85.
+
+Below is a visualization of the methodology:
 
 ```{mermaid}
 flowchart LR
