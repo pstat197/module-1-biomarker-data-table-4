@@ -1,0 +1,130 @@
+---
+title: "Phillip_Scripts"
+author: "Phillip Gurevich"
+date: "2025-11-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+
+# Get variable names
+var_names <- read_csv('data/biomarker-raw.csv', 
+                      col_names = F, 
+                      n_max = 2, 
+                      col_select = -(1:2)) %>%
+  t() %>%
+  as_tibble() %>%
+  rename(name = V1, 
+         abbreviation = V2) %>%
+  na.omit()
+
+# Read in data WITHOUT trimming
+biomarker_no_trim <- read_csv('data/biomarker-raw.csv', 
+                              skip = 2,
+                              col_select = -2L,
+                              col_names = c('group', 
+                                          'empty',
+                                          pull(var_names, abbreviation),
+                                          'ados'),
+                              na = c('-', '')) %>%
+  filter(!is.na(group)) %>%
+  # Log transform, center and scale (NO TRIMMING)
+  mutate(across(.cols = -c(group, ados), 
+                ~ scale(log10(.x))[, 1])) %>%
+  select(group, ados, everything()) %>%
+  # Add subject ID for tracking
+  mutate(subject_id = row_number(), .before = 1)
+```
+
+```{r}
+outlier_threshold <- 3
+
+# Count outliers per subject
+outlier_counts <- biomarker_no_trim %>%
+  pivot_longer(cols = -c(subject_id, group, ados),
+               names_to = "biomarker",
+               values_to = "z_score") %>%
+  mutate(is_outlier = abs(z_score) > outlier_threshold) %>%
+  group_by(subject_id, group) %>%
+  summarise(
+    n_outliers = sum(is_outlier, na.rm = TRUE),
+    n_biomarkers_measured = sum(!is.na(z_score)),
+    outlier_proportion = n_outliers / n_biomarkers_measured,
+    .groups = 'drop'
+  ) %>%
+  arrange(desc(n_outliers))
+```
+
+```{r}
+outlier_counts %>% 
+  head(10) %>%
+  knitr::kable(caption = "Top 10 subjects with most outlying values")
+```
+
+```{r}
+group_summary <- outlier_counts %>%
+  group_by(group) %>%
+  summarise(
+    n_subjects = n(),
+    total_outliers = sum(n_outliers),
+    mean_outliers_per_subject = mean(n_outliers),
+    median_outliers_per_subject = median(n_outliers),
+    subjects_with_outliers = sum(n_outliers > 0),
+    .groups = 'drop'
+  )
+
+group_summary %>%
+  knitr::kable(caption = "Outlier summary by group", digits = 2)
+```
+
+```{r fig.width=8, fig.height=5}
+ggplot(outlier_counts, aes(x = n_outliers, fill = group)) +
+  geom_histogram(binwidth = 1, position = "dodge", alpha = 0.7) +
+  labs(title = "Distribution of Outlier Counts per Subject",
+       x = "Number of Outlying Biomarkers",
+       y = "Number of Subjects",
+       fill = "Group") +
+  theme_minimal()
+
+```
+
+```{r fig.width=7, fig.height=5}
+ggplot(outlier_counts, aes(x = group, y = n_outliers, fill = group)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(width = 0.2, alpha = 0.3) +
+  labs(title = "Outlier Counts by Group",
+       x = "Group",
+       y = "Number of Outlying Biomarkers per Subject") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+```{r}
+biomarker_outliers <- biomarker_no_trim %>%
+  pivot_longer(cols = -c(subject_id, group, ados),
+               names_to = "biomarker",
+               values_to = "z_score") %>%
+  mutate(is_outlier = abs(z_score) > outlier_threshold) %>%
+  group_by(biomarker, group) %>%
+  summarise(
+    n_outliers = sum(is_outlier, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  arrange(desc(n_outliers))
+
+biomarker_outliers %>%
+  head(15) %>%
+  knitr::kable(caption = "Top 15 biomarkers with most outliers by group")
+```
+
+**Key findings:**
+
+- Total subjects analyzed: `r nrow(outlier_counts)`
+- Subjects with at least one outlier: `r sum(outlier_counts$n_outliers > 0)`
+- Average outliers per subject: `r round(mean(outlier_counts$n_outliers), 2)`

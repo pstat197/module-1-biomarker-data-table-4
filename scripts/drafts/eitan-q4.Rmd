@@ -1,0 +1,78 @@
+---
+title: "eitan-q4"
+output: html_document
+---
+
+## Part 4 — Simpler Panel (will use LASSO)
+
+To generate a simpler panel, we will use LASSO in order to zero out unimportant coefficients, which hopefully will result in a smaller set of proteins while retaining accuracy. We first will tune it on the training set only, then evaluate once on the test set.
+
+First, we run setup the libraries, load the data, and set a seed for reproducability. 
+
+``` {r}
+
+## ---- part4-lasso-simple, message=FALSE, warning=FALSE ------------------
+library(glmnet)
+library(pROC)
+library(caret)
+
+# Load data (this file is one folder up, inside 'data/')
+load("../../data/biomarker-clean.RData")
+
+set.seed(133233)
+```
+
+
+Now, we split the data, so we do not end up with training on all the data and overfitting on that data.
+```{r}
+idx  <- caret::createDataPartition(biomarker_clean$group, p = 0.8, list = FALSE)
+train <- biomarker_clean[idx, ]
+test  <- biomarker_clean[-idx, ]
+
+train$group <- factor(train$group, levels = c("TD","ASD"))
+test$group  <- factor(test$group,  levels = c("TD","ASD"))
+
+x_train <- model.matrix(group ~ . - 1, data = subset(train, select = -ados))
+y_train <- train$group
+x_test  <- model.matrix(group ~ . - 1, data = subset(test,  select = -ados))
+y_test  <- test$group
+```
+
+Now, we fit a LASSO logistic regression and extract the panel by looking at the coefficients generated. 
+
+```{r}
+set.seed(133233)
+
+cvfit <- cv.glmnet(
+  x = x_train, y = y_train,
+  family = "binomial",
+  type.measure = "auc",
+  nfolds = 8
+)
+
+coef_1se <- coef(cvfit, s = cvfit$lambda.1se)
+selected <- rownames(coef_1se)[as.numeric(coef_1se) != 0]
+selected <- setdiff(selected, "(Intercept)")
+
+cat("Simpler panel size:", length(selected), "\n")
+print(selected)
+```
+
+Now, we use the test data determined earlier we can test our selected panel to see how it compares. 
+``` {r}
+pred <- as.numeric(predict(cvfit, newx = x_test, s = cvfit$lambda.1se, type = "response"))
+roc_obj <- roc(response = y_test, predictor = pred, levels = c("TD","ASD"), quiet = TRUE)
+auc_val <- as.numeric(auc(roc_obj))
+cat(sprintf("Test AUROC (simpler λ_1SE model): %.3f\n", auc_val))
+```
+
+Our LASSO (λ₁SE) model selected `r length(selected)` proteins and reached a test AUROC of `r round(auc_val,3)`, which falls below the in-class benchmark ( $\approx 0.8$) from the hard-intersection logistic model. The shortfall likely reflects a mix of 
+(i) random train/test partition effects on a small sample
+(ii) the stronger shrinkage of λ₁SE, which is great for lowering predictors but prone to pruning helpful signals 
+
+For future implementations, to tighten results while staying simple, I would maybe 
+(1) re-split with a new seed
+(2) compare λ or nudge λ slightly upward to find the smallest panel whose CV AUC is near λ₁SE
+(3) optionally pre-filter to the top 20–30 proteins by a quick t-test on the training set before refitting (a combination of something that was seen earlier in lectures). 
+
+These tweaks would theoretically lift AUROC toward the ~0.8 range while keeping the panel compact. 

@@ -23,28 +23,65 @@ library(tidyverse)
 
 ## Abstract
 
-Write a brief one-paragraph abstract that describes the contents of your write-up.
+We reanalyzed a publicly available serum proteomics dataset to assess whether panels of circulating proteins can aid early identification of autism spectrum disorder (ASD). Using the dataset and workflow which we derived from Hewitson et al. (2021), we reproduced the core preprocessing (log transform, standardization, and trimming), then evaluated how analysis design choices affect results. We performed all feature selection on a training and testing split, increased the top-k proteins retained by each selector, and used a fuzzy intersection to combine the ranked lists from selectors. The classifiers were trained and benchmarked by AUROC and the related metrics on the test set which was held out until after training. Since the original study was retracted over methodological error, we have carried out a new benchmark rather than validating the original claim about ASD biomarkers.
 
 ## Dataset
 
-Write a brief data description, including: how data were obtained; sample characteristics; variables measured; and data preprocessing. This can be largely based on the source paper and should not exceed 1-2 paragraphs.
+The data originate from a serum study of male children aged \~18 months to 8 years: 76 with ASD and 78 typically developing (TD) controls. Serum was assayed on SomaLogic’s SOMAScan 1.3k platform. Following quality control that removed 192 proteins failing assay QC, 1,125 proteins remained for analysis. In the source study ADOS scores were used as a severity measure for ASD participants, while TD participants underwent developmental screening to rule out concerns.
+
+The analytic matrix comprises normalized serum protein abundance estimates alongside group labels (ASD/TD) and, for ASD only, ADOS scores. We carried out preprocessing throughout our assignment mirrors the source pipeline: log10 transformation, z-scaling, and trimming/clipping of outliers to ±3 SD for each protein before modeling. These steps correspond to the paper’s normalization and outlier handling and are implemented in our preprocessing.R to generate the clean dataset used in later analyses.
 
 ## Summary of published analysis
 
-Summarize the methodology of the paper in 1-3 paragraphs. You need not explain the methods in depth as we did in class; just indicate what methods were used and how they were combined. If possible, include a diagram that depicts the methodological design. (Quarto has support for [GraphViz and Mermaid flowcharts](https://quarto.org/docs/authoring/diagrams.html).) Provide key results: the proteins selected for the classifier and the estimated accuracy.
+In the study conducted by Hewitson et. al, the serum protenomics of 154 boys were measured. 76 boys had autism spectrum disorder (ASD), and 78 didn't. Quality control removed 192 proteins and analyzed 1,125 proteins. The data then underwent multiple pre-processing steps to normalize and remove outliers from the data.
+
+To select the proteins, a random forest, a two-sample t-test, and a correlation with ADOS total scores are independently ran in parallel. The top 10 most predictive proteins from each method were collected, and 5 proteins that were common to all 3 methods were taken as the 'core' proteins. The core panel was made up of MAPK14, IgD, DERM, EPHB2, and suPAR. This left 13 additional proteins.
+
+Using a logistic regression model, the each of the 13 remaining candidates were added one at a time to see if they boosted the performance of the model. In the end, 4 proteins improved the AUC, these were ROR1, GI24, eIF-4H, ARSB.
+
+The final selection of the 5 core proteins and the additional 4 proteins had an AUC of 0.86, a sensitivity of 0.83, and a specificity of 0.85.
+
+Below is a visualization of the methodology:
+
+```{mermaid}
+flowchart LR
+  A[Raw Data Collection] --> B[Data Preprocessing]
+  B[Data Preprocessing] --> C[Outlier Removal]
+  C --> D1[Random forest]
+  C --> D2[T-testing]
+  C --> D3[Correlation selection]
+  D1 --> E[5 Shared proteins]
+  D2 --> E
+  D3 --> E
+  E --> F[Additional proteins added using logistic regression]
+```
 
 ## Findings
 
-Summarize your findings here. I've included some subheaders in a way that seems natural to me; you can structure this section however you like.
-
 ### Impact of preprocessing and outliers
 
-Tasks 1-2
+The reason for log-transforming the protein levels in `biomarker-raw.csv` is due to a lot of right skewness in the first graph of the raw protein distribution. When right skewness is present it makes sense to log-transform the data because it compresses the long right tail and makes the distribution more symmetric.
+
+We temporarily removed the outlier trimming, and did some exploratory analysis of the outlying values. We found some subjects themselves that were outliers. Subject 154, subject 108, and subject 9 who were in groups TD, TD, and ASD respectively all had high (\> 120) levels of outlying values. The TD group had slightly more outliers than the ASD group, with the mean outlier count for the TD group being 17.5 while the mean count for the ASD group was 13.25.
+
+Overall, the preprocessing and removal of outliers is an important step for normalizing the data, and cleaning it for analysis.
 
 ### Methodological variations
 
-Task 3
+We experimented with the following methodological variations:
+
+First, we repeated the analysis but carried out the entire selection procedure on a training partition. It allowed us to get the intersection of proteins out of the top 10. The seven intersecting proteins were DERM, IgD, CK-MB, MAPK2, aldolase A, MAPK14, and M2-PK. The test metrics from the partitioned procedure had an accuracy, sensitivity, and specificity of 0.625, and a roc_auc of 0.602. The test performance is a bit lower (the original test accuracy was 0.7). This reflects the lowered bias (and thus, lowered test accuracy) of the partitioned procedure. The lower panel size of only 7 selected proteins is likely a result of a smaller sample size, and this reflects the reduced stability of feature selection.
+
+Second, we chose a larger number (n = 15) of top predictive proteins using each selection method. Selecting the top 15 predictive proteins using each selection method has a moderate effect on the final selection results. The original process selected 4 proteins, while the larger (n=15) process yielded 7. The additional proteins that were included are Calcineurin, MAPK2, and TGF-b R III.
+
+Lastly, we used a fuzzy selection to include proteins that show up in at least two of the selection methods. Interestingly enough, our results are the same as with the hard selection. This is because our proteins_s3 variable is independent of the two pre-processing steps, so it selected 10 proteins that weren't present in the other two steps, thus making no difference, and leaving only the proteins that were common between proteins_s1 and proteins_s2.
 
 ### Improved classifier
 
-Task 4
+To generate a simpler panel, we used LASSO in order to zero out unimportant coefficients. The idea is that this would result in a smaller set of proteins while retaining accuracy. The model will first be tuned on the training set only, then evaluated on the test set.
+
+Our LASSO (λ₁SE) model selected 4 proteins and reached a test AUROC of 0.636, which falls below the in-class benchmark ( $\approx 0.8$) from the hard-intersection logistic model. The shortfall likely reflects a mix of (i) random train/test partition effects on a small sample (ii) the stronger shrinkage of λ₁SE, which is great for lowering predictors but prone to pruning helpful signals
+
+For future implementations, to tighten results while staying simple, I would maybe (1) re-split with a new seed (2) compare λ or nudge λ slightly upward to find the smallest panel whose CV AUC is near λ₁SE (3) optionally pre-filter to the top 20–30 proteins by a quick t-test on the training set before refitting (a combination of something that was seen earlier in lectures).
+
+These tweaks would theoretically lift AUROC toward the \~0.8 range while keeping the panel compact.
