@@ -1,0 +1,257 @@
+---
+title: "question3"
+author: "oscar"
+date: "2025-10-29"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(broom)
+library(pROC)
+library(here)
+library(infer)
+library(randomForest)
+library(tidymodels)
+library(modelr)
+library(yardstick)
+```
+
+```{r}
+set.seed(10292025)
+```
+
+```{r load-clean-here}
+rdata_path <- here::here("data", "biomarker-clean.RData")
+objs <- load(rdata_path)
+```
+
+```{r}
+biomarker_clean
+```
+Make sure group is factorized
+
+```{r}
+bio <- biomarker_clean
+```
+
+
+## 3.  Experiment with the following modifications:
+
+    -   repeat the analysis but carry out the entire selection procedure on a training partition -- in other words, set aside some testing data at the very beginning and don't use it until you are evaluating accuracy at the very end
+    
+    
+
+```{r}
+
+idx_td  <- which(bio$group == "TD")
+idx_asd <- which(bio$group == "ASD")
+
+split_idx <- function(ix, prop = 0.7) sample(ix, floor(length(ix)*prop))
+tr_idx <- c(split_idx(idx_td), split_idx(idx_asd))
+te_idx <- setdiff(seq_len(nrow(bio)), tr_idx)
+
+bio_tr <- bio[tr_idx, , drop = FALSE]
+bio_te <- bio[te_idx, , drop = FALSE]
+
+table(Train = bio_tr$group)
+table(Test  = bio_te$group)
+```
+
+
+    -   choose a larger number (more than ten) of top predictive proteins using each selection method
+    
+```{r}
+## MULTIPLE TESTING
+####################
+
+# function to compute tests
+test_fn <- function(.df){
+  t_test(.df, 
+         formula = level ~ group,
+         order = c('ASD', 'TD'),
+         alternative = 'two-sided',
+         var.equal = F)
+}
+
+ttests_out <- biomarker_clean %>%
+  # drop ADOS score
+  select(-ados) %>%
+  # arrange in long format
+  pivot_longer(-group, 
+               names_to = 'protein', 
+               values_to = 'level') %>%
+  # nest by protein
+  nest(data = c(level, group)) %>% 
+  # compute t tests
+  mutate(ttest = map(data, test_fn)) %>%
+  unnest(ttest) %>%
+  # sort by p-value
+  arrange(p_value) %>%
+  # multiple testing correction
+  mutate(m = n(),
+         hm = log(m) + 1/(2*m) - digamma(1),
+         rank = row_number(),
+         p.adj = m*hm*p_value/rank)
+
+# select significant proteins
+proteins_s1 <- ttests_out %>%
+  slice_min(p.adj, n = 10) %>%
+  pull(protein)
+
+proteins_s1_large <- ttests_out %>%
+  slice_min(p.adj, n = 15) %>%
+  pull(protein)
+```
+
+```{r}
+predictors <- biomarker_clean %>%
+  select(-c(group, ados))
+
+response <- biomarker_clean %>% pull(group) %>% factor()
+
+# fit RF
+set.seed(101422)
+rf_out <- randomForest(x = predictors, 
+                       y = response, 
+                       ntree = 1000, 
+                       importance = T)
+
+# check errors
+rf_out$confusion
+
+# compute importance scores
+proteins_s2 <- rf_out$importance %>% 
+  as_tibble() %>%
+  mutate(protein = rownames(rf_out$importance)) %>%
+  slice_max(MeanDecreaseGini, n = 10) %>%
+  pull(protein)
+
+proteins_s2_large <- rf_out$importance %>% 
+  as_tibble() %>%
+  mutate(protein = rownames(rf_out$importance)) %>%
+  slice_max(MeanDecreaseGini, n = 15) %>%
+  pull(protein)
+```
+
+```{r}
+## LOGISTIC REGRESSION
+#######################
+
+# select subset of interest
+proteins_sstar <- intersect(proteins_s1, proteins_s2)
+
+proteins_sstar_large <- intersect(proteins_s1_large, proteins_s2_large)
+
+biomarker_sstar <- biomarker_clean %>%
+  select(group, any_of(proteins_sstar)) %>%
+  mutate(class = factor(if_else(group == "ASD", "ASD", "TD"),
+                        levels = c("TD","ASD"))) %>% #factorized group
+  select(-group)
+
+biomarker_sstar_large <- biomarker_clean %>%
+  select(group, any_of(proteins_sstar_large)) %>%
+  mutate(class = factor(if_else(group == "ASD", "ASD", "TD"),
+                        levels = c("TD","ASD"))) %>% #factorized group
+  select(-group)
+
+# partition into training and test set
+set.seed(101422)
+biomarker_split <- biomarker_sstar %>%
+  initial_split(prop = 0.8)
+
+biomarker_split_large <- biomarker_sstar_large %>%
+  initial_split(prop = 0.8)
+
+#added formula to backtick column names because of column name errors when getting results
+mk_formula <- function(df, resp = "class") {
+  preds <- setdiff(names(df), resp)
+  as.formula(paste(resp, "~", paste(sprintf("`%s`", preds), collapse = " + ")))
+}
+
+# fit logistic regression model to training set
+fit <- glm(
+  formula = mk_formula(training(biomarker_split), resp = "class"),
+  data = training(biomarker_split), 
+  family = 'binomial')
+
+fit_large <- glm(
+  formula = mk_formula(training(biomarker_split_large), resp = "class"),
+  data = training(biomarker_split_large),
+  family = 'binomial')
+
+# evaluate errors on test set
+class_metrics <- metric_set(sensitivity, 
+                            specificity, 
+                            accuracy,
+                            roc_auc)
+
+normal_results <- testing(biomarker_split) %>%
+  add_predictions(fit, type = "response") %>%
+  mutate(
+    pred_prob  = pred,
+    pred_class = factor(if_else(pred_prob > 0.5, "ASD", "TD"),
+                        levels = c("TD","ASD"))
+  ) # adjusted to allow for factorized class
+
+large_n_results <- testing(biomarker_split_large) %>%
+  add_predictions(fit_large, type = 'response') %>%
+  mutate(
+    pred_prob  = pred,
+    pred_class = factor(if_else(pred_prob > 0.5, "ASD", "TD"),
+                        levels = c("TD","ASD"))
+  ) # adjusted to allow for factorized class
+```
+
+
+```{r}
+normal_results
+
+large_n_results
+```
+
+
+Selecting the top 15 predictive proteins using each selection method has a moderate effect on the final selection results. The original process selected 4 proteins, while the larger (n=15) process yielded 7. The additional proteins that were included are Calcineurin, MAPK2, and TGF-b R III.
+
+
+    -   use a fuzzy intersection instead of a hard intersection to combine the sets of top predictive proteins across selection methods
+
+To create a fuzzy intersection, we need to include proteins that match show up in at least two of the selection methods. To do this, we must first individually find the top proteins most strongly correlated with ADOS severity.
+
+```{r}
+asd_df <- biomarker_clean %>%
+  filter(group == "ASD") %>%
+  select(group, ados, everything())
+
+prot_cols <- setdiff(names(asd_df), c("group","ados"))
+
+cors <- map_dbl(prot_cols, ~ suppressWarnings(
+  cor(asd_df[[.x]], asd_df$ados, use = "pairwise.complete.obs")
+))
+
+proteins_s3 <- tibble(protein = prot_cols, score = abs(cors)) %>%
+  arrange(desc(score)) %>%
+  slice_head(n = 10) %>%
+  pull(protein)
+
+proteins_s3
+```
+Now that we have our top proteins, let's find the "fuzzy" intersection.
+
+```{r}
+proteins_fuzzy <- union(
+  union(intersect(proteins_s1, proteins_s2), intersect(proteins_s1, proteins_s3)),
+  intersect(proteins_s2, proteins_s3)
+)
+
+proteins_fuzzy
+```
+
+
+Interestingly enough, our results are the same as with the hard selection. This is because our proteins_s3 variable is independent of the two pre-processing steps, so it selected 10 proteins that weren't present in the other two steps, thus making no difference, and leaving only the proteins that were common between proteins_s1 and proteins_s2.
+
