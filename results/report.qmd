@@ -23,11 +23,13 @@ library(tidyverse)
 
 ## Abstract
 
-In this report, we use a public dataset to analyse early detection biomarkers for autism spectrum disorder. Continue
+We reanalyzed a publicly available serum proteomics dataset to assess whether panels of circulating proteins can aid early identification of autism spectrum disorder (ASD). Using the dataset and workflow which we derived from Hewitson et al. (2021), we reproduced the core preprocessing (log transform, standardization, and trimming), then evaluated how analysis design choices affect results. We performed all feature selection on a training and testing split, increased the top-k proteins retained by each selector, and used a fuzzy intersection to combine the ranked lists from selectors. The classifiers were trained and benchmarked by AUROC and the related metrics on the test set which was held out until after training. Since the original study was retracted over methodological error, we have carried out a new benchmark rather than validating the original claim about ASD biomarkers.
 
 ## Dataset
 
-Write a brief data description, including: how data were obtained; sample characteristics; variables measured; and data preprocessing. This can be largely based on the source paper and should not exceed 1-2 paragraphs.
+The data originate from a serum study of male children aged \~18 months to 8 years: 76 with ASD and 78 typically developing (TD) controls. Serum was assayed on SomaLogic’s SOMAScan 1.3k platform. Following quality control that removed 192 proteins failing assay QC, 1,125 proteins remained for analysis. In the source study ADOS scores were used as a severity measure for ASD participants, while TD participants underwent developmental screening to rule out concerns.
+
+The analytic matrix comprises normalized serum protein abundance estimates alongside group labels (ASD/TD) and, for ASD only, ADOS scores. We carried out preprocessing throughout our assignment mirrors the source pipeline: log10 transformation, z-scaling, and trimming/clipping of outliers to ±3 SD for each protein before modeling. These steps correspond to the paper’s normalization and outlier handling and are implemented in our preprocessing.R to generate the clean dataset used in later analyses.
 
 ## Summary of published analysis
 
